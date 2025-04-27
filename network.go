@@ -7,7 +7,11 @@ import (
 	"time"
 )
 
-// getLocalSubnet tries to find your local network CIDR, like "192.168.1.0/24"
+type Device struct {
+	IP       string
+	Hostname string
+}
+
 func getLocalSubnet() (string, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -28,10 +32,9 @@ func getLocalSubnet() (string, error) {
 	return "", fmt.Errorf("no valid network interface found")
 }
 
-// scanNetwork scans the entire subnet and tries to connect on common ports
-func scanNetwork(cidr string) []string {
-	ports := []string{"80", "443", "22"} // HTTP, HTTPS, SSH
-	var active []string
+func scanNetwork(cidr string) []Device {
+	ports := []string{"80", "443", "22"}
+	var active []Device
 
 	ip, ipnet, err := net.ParseCIDR(cidr)
 	if err != nil {
@@ -52,7 +55,8 @@ func scanNetwork(cidr string) []string {
 			address := net.JoinHostPort(ipStr, port)
 			conn, err := net.DialTimeout("tcp", address, 300*time.Millisecond)
 			if err == nil {
-				active = appendIfMissing(active, ipStr)
+				hostname := lookupHostname(ipStr)
+				active = appendIfMissingDevice(active, Device{IP: ipStr, Hostname: hostname})
 				conn.Close()
 				break // Found open port, no need to scan more ports for this IP
 			}
@@ -62,7 +66,6 @@ func scanNetwork(cidr string) []string {
 	return active
 }
 
-// incIP increments an IP address by 1
 func incIP(ip net.IP) {
 	for j := len(ip) - 1; j >= 0; j-- {
 		ip[j]++
@@ -72,13 +75,11 @@ func incIP(ip net.IP) {
 	}
 }
 
-// isSpecialIP skips IPs ending in .0 or .255
 func isSpecialIP(ip string) bool {
 	return strings.HasSuffix(ip, ".0") || strings.HasSuffix(ip, ".255")
 }
 
-// appendIfMissing avoids duplicate entries
-func appendIfMissing(slice []string, item string) []string {
+func appendIfMissingDevice(slice []Device, item Device) []Device {
 	for _, existing := range slice {
 		if existing == item {
 			return slice
@@ -86,3 +87,29 @@ func appendIfMissing(slice []string, item string) []string {
 	}
 	return append(slice, item)
 }
+
+func lookupHostname(ip string) string {
+	names, err := net.LookupAddr(ip)
+	if err != nil {
+		return "(unkown)"
+	}
+	return strings.TrimSuffix(names[0], ".")
+}
+
+// func pingIP(ip string) bool {
+// 	pinger, err := ping.NewPinger(ip)
+// 	if err != nil {
+// 		return false
+// 	}
+// 	pinger.SetPrivileged(true)
+// 	pinger.Count = 1
+// 	pinger.Timeout = 500 * time.Millisecond
+
+// 	err = pinger.Run()
+// 	if err != nil {
+// 		return false
+// 	}
+
+// 	stats := pinger.Statistics()
+// 	return stats.PacketRecv > 0
+// }
